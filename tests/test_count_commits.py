@@ -29,6 +29,19 @@ def commit(sha, author="TobeBestKK", parents=1):
             "parents": [{} for _ in range(parents)]}
 
 
+CARD = '''<svg xmlns="http://www.w3.org/2000/svg" width="450" height="195" viewBox="0 0 450 195">
+<title>Timeseeker's GitHub Stats, Rank: C</title>
+<desc>Total Stars Earned: 3, Total Commits  : 94, Total PRs: 13</desc>
+<style>.stat { fill: #434d58; }</style>
+<rect data-testid="card-bg" rx="10"/>
+<text data-testid="header">Timeseeker's GitHub Stats</text>
+<g><text>Total Stars Earned:</text><text data-testid="stars">3</text></g>
+<g><text class="stat">Total Commits:</text><text class="stat" data-testid="commits" x="204.01">94</text></g>
+<g><text>Total PRs:</text><text data-testid="prs">13</text></g>
+<g data-testid="rank-circle"><text data-testid="level-rank-icon">C</text></g>
+</svg>'''
+
+
 class CountingTests(unittest.TestCase):
     def client(self, repos):
         client = Mock(token="test-token")
@@ -157,9 +170,9 @@ class ClientTests(unittest.TestCase):
 
 
 class OutputTests(unittest.TestCase):
-    def test_failed_scan_retains_previous_badge(self):
+    def test_failed_scan_retains_previous_card(self):
         with tempfile.TemporaryDirectory(dir=SCRIPT.parents[2]) as directory:
-            output = Path(directory) / "badge.svg"
+            output = Path(directory) / "card.svg"
             output.write_text("previous complete result", encoding="utf-8")
             with patch.object(stats, "count_commits", side_effect=stats.StatsError("incomplete")), \
                  patch("sys.stderr", new_callable=io.StringIO):
@@ -169,29 +182,81 @@ class OutputTests(unittest.TestCase):
     def test_missing_token_fails_before_network_or_output(self):
         with tempfile.TemporaryDirectory(dir=SCRIPT.parents[2]) as directory, patch.dict(os.environ, {}, clear=True), \
              patch.object(stats.GitHubClient, "get") as get, patch("sys.stderr", new_callable=io.StringIO):
-            output = Path(directory) / "badge.svg"
+            output = Path(directory) / "card.svg"
             self.assertEqual(stats.main(["--output", str(output)]), 1)
             get.assert_not_called()
             self.assertFalse(output.exists())
 
     def test_svg_labels_pending_public_and_complete_scopes(self):
-        cases = [(None, "pending"), (stats.CommitStats(52, 1, 3, True), "Public commits"),
-                 (stats.CommitStats(152, 16, 20, False), "Total commits")]
+        cases = [(None, "pending"), (stats.CommitStats(52, 1, 3, True), "Public Commits"),
+                 (stats.CommitStats(1252, 16, 20, False), "Total Commits")]
         for result, expected in cases:
-            svg = stats.render_badge(result)
+            svg = stats.render_card(CARD, result)
             root = ET.fromstring(svg)
             self.assertEqual(root.tag, "{http://www.w3.org/2000/svg}svg")
             self.assertIn(expected, svg)
-        self.assertNotIn("public + private", stats.render_badge(cases[1][0]))
+        self.assertNotIn("public + private", stats.render_card(CARD, cases[1][0]))
 
-    def test_unchanged_badge_is_not_rewritten(self):
+    def test_unchanged_card_is_not_rewritten(self):
         with tempfile.TemporaryDirectory(dir=SCRIPT.parents[2]) as directory:
-            output = Path(directory) / "badge.svg"
+            output = Path(directory) / "card.svg"
             result = stats.CommitStats(52, 1, 3, False)
-            stats.write_badge(output, result)
+            stats.write_card(output, CARD, result)
             before = output.stat().st_mtime_ns
-            stats.write_badge(output, result)
+            stats.write_card(output, CARD, result)
             self.assertEqual(output.stat().st_mtime_ns, before)
+
+    def test_commit_replacement_preserves_card_layout_and_other_metrics(self):
+        root = ET.fromstring(stats.render_card(CARD, stats.CommitStats(1252, 16, 20, False)))
+        self.assertEqual(root.attrib, ET.fromstring(CARD).attrib)
+        for key, expected in (("commits", "1,252"), ("stars", "3"), ("prs", "13"),
+                              ("header", "Timeseeker's GitHub Stats"), ("level-rank-icon", "C")):
+            self.assertEqual(root.find(f".//*[@data-testid='{key}']").text, expected)
+        self.assertEqual(root.find(".//*[@data-testid='commits']").get("x"), "204.01")
+        description = root.find("{http://www.w3.org/2000/svg}desc").text
+        self.assertIn("Total Commits: 1,252, Total PRs: 13", description)
+        self.assertNotIn(": 94", description)
+
+    def test_invalid_or_changed_upstream_card_retains_previous_output(self):
+        with tempfile.TemporaryDirectory(dir=SCRIPT.parents[2]) as directory:
+            output = Path(directory) / "card.svg"
+            output.write_text("previous complete result", encoding="utf-8")
+            sources = ["not SVG", CARD.replace('data-testid="commits"', 'data-testid="other"'),
+                       CARD.replace("Total Commits  : 94", "Changed description"),
+                       CARD.replace('>Total Commits:</text>', '>Changed label:</text>')]
+            for source in sources:
+                with self.subTest(source=source), self.assertRaises(stats.StatsError):
+                    stats.write_card(output, source, stats.CommitStats(52, 1, 3, False))
+                self.assertEqual(output.read_text(encoding="utf-8"), "previous complete result")
+
+    def test_failed_card_download_retains_previous_output(self):
+        with tempfile.TemporaryDirectory(dir=SCRIPT.parents[2]) as directory:
+            output = Path(directory) / "card.svg"
+            output.write_text("previous complete result", encoding="utf-8")
+            with patch.object(stats, "count_commits", return_value=stats.CommitStats(52, 1, 3, False)), \
+                 patch.object(stats, "fetch_stats_card", side_effect=stats.StatsError("download failed")), \
+                 patch("sys.stderr", new_callable=io.StringIO):
+                self.assertEqual(stats.main(["--output", str(output)]), 1)
+            self.assertEqual(output.read_text(encoding="utf-8"), "previous complete result")
+
+    def test_successful_scan_writes_count_inside_full_card(self):
+        with tempfile.TemporaryDirectory(dir=SCRIPT.parents[2]) as directory:
+            output = Path(directory) / "card.svg"
+            with patch.object(stats, "count_commits", return_value=stats.CommitStats(52, 1, 3, False)), \
+                 patch.object(stats, "fetch_stats_card", return_value=CARD), \
+                 patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(stats.main(["--output", str(output)]), 0)
+            root = ET.fromstring(output.read_text(encoding="utf-8"))
+            self.assertEqual(root.find(".//*[@data-testid='commits']").text, "52")
+
+    def test_public_stats_service_never_receives_the_scan_token(self):
+        opener = Mock(return_value=io.BytesIO(CARD.encode()))
+        with patch.dict(os.environ, {"COMMIT_STATS_TOKEN": "secret-token"}):
+            self.assertEqual(stats.fetch_stats_card("TobeBestKK", opener), CARD)
+        request = opener.call_args.args[0]
+        self.assertNotIn("Authorization", request.headers)
+        self.assertNotIn("secret-token", request.full_url)
+        self.assertEqual(parse_qs(urlparse(request.full_url).query)["include_all_commits"], ["true"])
 
 
 if __name__ == "__main__":

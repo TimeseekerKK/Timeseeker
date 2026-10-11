@@ -1,4 +1,4 @@
-name: Refresh total commit count
+name: Refresh GitHub stats card
 
 on:
   schedule:
@@ -33,19 +33,19 @@ jobs:
 
       - name: Count authored commits across all owned repositories and branches
         env:
-          # Fine-grained PAT: resource owner TobeBestKK, all repositories,
-          # Contents: read. It must expose owned_private_repos for coverage checks.
+          # Classic PAT owned by TobeBestKK: repo + read:user.
+          # read:user exposes owned_private_repos for complete coverage checks.
           COMMIT_STATS_TOKEN: ${{ secrets.COMMIT_STATS_TOKEN }}
         run: python -B .github/scripts/count_commits.py
 
-      - name: Commit updated badge
+      - name: Commit updated stats card
         shell: bash
         run: |
           set -euo pipefail
 
-          git add -- assets/total-commits.svg
+          git add -- assets/github-stats.svg
           if git diff --cached --quiet; then
-            echo "No badge change is needed."
+            echo "No card change is needed."
             exit 0
           fi
 

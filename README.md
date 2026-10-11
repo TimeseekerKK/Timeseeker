@@ -6,16 +6,16 @@
 
 ### 📰 Basic info:
 
-<img align="right" width="330" src="https://github-stats-extended.vercel.app/api?username=TobeBestKK&hide=commits&border_radius=10&theme=default&include_all_commits=true&v=20261011" alt="GitHub stats">
+<img align="right" width="330" src="./assets/github-stats.svg" alt="Timeseeker's GitHub Stats">
 
 - 🧭 **Focus:** Full-stack admin, embedded UI, Flutter & automation
 - 🔗 **Links:** [github.com/TobeBestKK](https://github.com/TobeBestKK) · [gitee.com/tobebestkk](https://gitee.com/tobebestkk)
 - 📚 **Motto:** Build, document, reuse — `UTC+8`
-- 📝 **Commits:** ![Total commits across all branches](./assets/total-commits.svg)
 
 <!-- 统计所有自有仓库（含 fork、私有仓库）现存分支中 GitHub 归属于 TobeBestKK 的作者提交；包含 merge，跨仓库按 SHA 去重。
-首次启用：在本仓库 Actions secrets 中配置 COMMIT_STATS_TOKEN，使用 TobeBestKK 的 fine-grained PAT，选择 All repositories 并授予 Contents: read。
-工作流需要读取 owned_private_repos 来核验私有仓库覆盖范围；读取失败时保留旧徽章，不发布部分结果。未配置时徽章保持 pending。 -->
+首次启用：在本仓库 Actions secrets 中配置 COMMIT_STATS_TOKEN；使用 TobeBestKK 的 Classic PAT，授予 repo 和 read:user。
+工作流需要读取 owned_private_repos 来核验私有仓库覆盖范围；读取失败时保留旧卡片，不发布部分结果。
+卡片内的 Total Commits 使用上述计数，其余统计和等级来自 github-stats-extended；首次完整统计前 Total Commits 显示 pending。 -->
 
 <br clear="right">
 

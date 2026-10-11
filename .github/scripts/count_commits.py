@@ -6,16 +6,17 @@ with Contents: read. --public-only is an explicitly narrower diagnostic mode.
 
 import argparse
 from dataclasses import dataclass
-from html import escape
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
+import xml.etree.ElementTree as ET
 
 
 class StatsError(RuntimeError):
@@ -116,7 +117,7 @@ def owned_repositories(client, username, public_only=False):
     expected_public = profile.get("public_repos")
     actual_public = sum(not repo["private"] for repo in repos.values())
     if not isinstance(expected_public, int) or actual_public != expected_public:
-        raise StatsError("Public repository coverage is incomplete; previous badge retained.")
+        raise StatsError("Public repository coverage is incomplete; previous card retained.")
     if not public_only:
         expected_private = profile.get("owned_private_repos")
         actual_private = sum(repo["private"] for repo in repos.values())
@@ -162,39 +163,61 @@ def count_commits(client, username, public_only=False):
     return CommitStats(len(shas), len(repos), branches, public_only)
 
 
-def render_badge(stats=None):
+def fetch_stats_card(username, opener=urlopen):
+    # This public service never receives COMMIT_STATS_TOKEN.
+    url = "https://github-stats-extended.vercel.app/api?" + urlencode({
+        "username": username, "include_all_commits": "true",
+        "border_radius": "10", "theme": "default",
+    })
+    try:
+        with opener(Request(url, headers={"User-Agent": "TobeBestKK-commit-stats"}),
+                    timeout=30) as response:
+            return response.read().decode("utf-8")
+    except (HTTPError, URLError, TimeoutError, UnicodeError):
+        raise StatsError("Stats card download failed; previous card retained.") from None
+
+
+def render_card(source, stats=None):
+    """Keep the upstream card and replace its commit metric with our own count."""
+    namespace = "http://www.w3.org/2000/svg"
+    ET.register_namespace("", namespace)
+    try:
+        root = ET.fromstring(source)
+    except ET.ParseError:
+        raise StatsError("Stats service returned invalid SVG; previous card retained.") from None
+    nodes = root.findall(".//*[@data-testid='commits']")
+    description = root.find(f"{{{namespace}}}desc")
+    if root.tag != f"{{{namespace}}}svg" or len(nodes) != 1 or description is None:
+        raise StatsError("Stats card commit row is missing; previous card retained.")
+    value_node = nodes[0]
+    row = next((node for node in root.iter() if value_node in list(node)), None)
+    labels = [node for node in row if node.tag == f"{{{namespace}}}text" and node is not value_node]
+    if len(labels) != 1 or not (labels[0].text or "").startswith("Total Commits"):
+        raise StatsError("Stats card commit row changed; previous card retained.")
     value = f"{stats.total:,}" if stats else "pending"
     scope = "public repositories" if stats and stats.public_only else "public + private repositories"
-    description = (
+    details = (
         f"Authored commits in {scope}, all current branches, including merges, "
         "deduplicated by SHA across repositories."
     )
     if stats:
-        description += f" Scanned {stats.repositories} repositories and {stats.branches} branches."
+        details += f" Scanned {stats.repositories} repositories and {stats.branches} branches."
     else:
-        description += " Awaiting the first complete scan with COMMIT_STATS_TOKEN."
-    label = "Public commits · all branches" if stats and stats.public_only else "Total commits · all branches"
-    label_width = 200 if stats and stats.public_only else 194
-    value_width = max(64, len(value) * 8 + 20)
-    width = label_width + value_width
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="24" viewBox="0 0 {width} 24" role="img" aria-labelledby="title description">
-  <title id="title">{escape(label)}: {value}</title>
-  <desc id="description">{escape(description)}</desc>
-  <clipPath id="rounded"><rect width="{width}" height="24" rx="4"/></clipPath>
-  <g clip-path="url(#rounded)">
-    <rect width="{label_width}" height="24" fill="#555"/>
-    <rect x="{label_width}" width="{value_width}" height="24" fill="#2f80ed"/>
-  </g>
-  <g fill="#fff" text-anchor="middle" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11">
-    <text x="{label_width / 2:g}" y="16">{escape(label)}</text>
-    <text x="{label_width + value_width / 2:g}" y="16">{value}</text>
-  </g>
-</svg>
-'''
+        details += " Awaiting the first complete scan with COMMIT_STATS_TOKEN."
+    label = "Public Commits" if stats and stats.public_only else "Total Commits"
+    updated_description, replacements = re.subn(
+        r"Total Commits[^:]*:\s*\d+(?:,\d{3})*", f"{label}: {value}", description.text or "", count=1,
+    )
+    if replacements != 1:
+        raise StatsError("Stats card description changed; previous card retained.")
+    labels[0].text = label + ":"
+    value_node.text = value
+    description.text = updated_description + ". " + details
+    return "\n".join(line.rstrip() for line in ET.tostring(root, encoding="unicode").splitlines()) + "\n"
 
 
-def write_badge(output, stats):
-    content = render_badge(stats)
+def write_card(output, source, stats=None):
+    content = render_card(source, stats)
     output = Path(output)
     if output.exists() and output.read_text(encoding="utf-8") == content:
         return
@@ -214,16 +237,17 @@ def write_badge(output, stats):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--username", default="TobeBestKK")
-    parser.add_argument("--output", type=Path, default=Path("assets/total-commits.svg"))
+    parser.add_argument("--output", type=Path, default=Path("assets/github-stats.svg"))
     parser.add_argument("--public-only", action="store_true",
                         help="Diagnostic mode: count only public repositories, labeled accordingly.")
     args = parser.parse_args(argv)
     try:
         stats = count_commits(GitHubClient(os.environ.get("COMMIT_STATS_TOKEN", "")),
                               args.username, args.public_only)
-        write_badge(args.output, stats)
+        source = fetch_stats_card(args.username)
+        write_card(args.output, source, stats)
     except (StatsError, OSError, KeyError, TypeError) as error:
-        message = str(error) if isinstance(error, StatsError) else "Scan or badge write failed."
+        message = str(error) if isinstance(error, StatsError) else "Scan or card write failed."
         print(message, file=sys.stderr)
         return 1
     scope = "public only" if stats.public_only else "public + private"
