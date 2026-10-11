@@ -1,4 +1,4 @@
-name: Refresh GitHub stats card
+name: Refresh total commit count
 
 on:
   schedule:
@@ -10,31 +10,47 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: refresh-total-commits
+  cancel-in-progress: false
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Update stats card cache version
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Test commit counting
+        run: python -B -m unittest discover -s tests -v
+
+      - name: Count authored commits across all owned repositories and branches
+        env:
+          # Fine-grained PAT: resource owner TobeBestKK, all repositories,
+          # Contents: read. It must expose owned_private_repos for coverage checks.
+          COMMIT_STATS_TOKEN: ${{ secrets.COMMIT_STATS_TOKEN }}
+        run: python -B .github/scripts/count_commits.py
+
+      - name: Commit updated badge
         shell: bash
         run: |
           set -euo pipefail
 
-          today="$(TZ=Asia/Shanghai date +%Y%m%d)"
-
-          sed -i -E "s/(&v=)[0-9]{8}/\1${today}/" README.md
-
-          if git diff --quiet -- README.md; then
-            echo "No README change is needed."
+          git add -- assets/total-commits.svg
+          if git diff --cached --quiet; then
+            echo "No badge change is needed."
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add README.md
-          git commit -m "chore: refresh stats card cache"
+          git commit -m "chore: 更新全分支个人提交总数"
           git push
