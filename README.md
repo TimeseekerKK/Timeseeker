@@ -9,7 +9,7 @@
 <img align="right" width="330" src="./assets/github-stats.svg" alt="Timeseeker's GitHub Stats">
 
 - 🧭 **Focus:** Full-stack admin, embedded UI, Flutter & automation
-- 🔗 **Links:** [github.com/TimeseekerKK](https://github.com/TimeseekerKK) · [gitee.com/tobebestkk](https://gitee.com/tobebestkk)
+- 🔗 **Links:** [github.com/TimeseekerKK](https://github.com/TimeseekerKK) · [gitee.com/Timeseeker](https://gitee.com/Timeseeker)
 - 📚 **Motto:** Build, document, reuse — `UTC+8`
 
 <!-- 统计所有自有仓库（含 fork、私有仓库）现存分支中 GitHub 归属于 TimeseekerKK 的作者提交；包含 merge，跨仓库按 SHA 去重。
@@ -42,7 +42,7 @@
 ### ⌨ Find me <img align="right" width="390" src="./github-contribution-grid-snake.svg" alt="GitHub contribution snake">
 
 [![GitHub](https://img.shields.io/badge/GitHub-TimeseekerKK-181717?style=flat-square&logo=github&logoColor=white)](https://github.com/TimeseekerKK)
-[![Gitee](https://img.shields.io/badge/Gitee-Projects-C71D23?style=flat-square&logo=gitee&logoColor=white)](https://gitee.com/tobebestkk)
+[![Gitee](https://img.shields.io/badge/Gitee-Timeseeker-C71D23?style=flat-square&logo=gitee&logoColor=white)](https://gitee.com/Timeseeker)
 
 <br clear="right">
 
