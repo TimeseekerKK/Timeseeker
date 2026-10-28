@@ -33,7 +33,7 @@ jobs:
 
       - name: Count authored commits across all owned repositories and branches
         env:
-          # Classic PAT owned by TobeBestKK: repo + read:user.
+          # Classic PAT owned by TimeseekerKK: repo + read:user.
           # read:user exposes owned_private_repos for complete coverage checks.
           COMMIT_STATS_TOKEN: ${{ secrets.COMMIT_STATS_TOKEN }}
         run: python -B .github/scripts/count_commits.py

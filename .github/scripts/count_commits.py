@@ -36,7 +36,7 @@ class GitHubClient:
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "TobeBestKK-commit-stats",
+            "User-Agent": "TimeseekerKK-commit-stats",
         }
         if self.token:
             headers["Authorization"] = "Bearer " + self.token
@@ -170,7 +170,7 @@ def fetch_stats_card(username, opener=urlopen):
         "border_radius": "10", "theme": "default",
     })
     try:
-        with opener(Request(url, headers={"User-Agent": "TobeBestKK-commit-stats"}),
+        with opener(Request(url, headers={"User-Agent": "TimeseekerKK-commit-stats"}),
                     timeout=30) as response:
             return response.read().decode("utf-8")
     except (HTTPError, URLError, TimeoutError, UnicodeError):
@@ -236,7 +236,7 @@ def write_card(output, source, stats=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--username", default="TobeBestKK")
+    parser.add_argument("--username", default="TimeseekerKK")
     parser.add_argument("--output", type=Path, default=Path("assets/github-stats.svg"))
     parser.add_argument("--public-only", action="store_true",
                         help="Diagnostic mode: count only public repositories, labeled accordingly.")
