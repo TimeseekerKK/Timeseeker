@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="450" height="195" viewBox="0 0 450 195" fill="none" role="img" aria-labelledby="descId">
         <title id="titleId">Timeseeker's GitHub Stats, Rank: C</title>
-        <desc id="descId">Total Stars Earned: 3, Total Commits: 129, Total PRs: 14, Total Issues: 3, Contributed to (last year): 3. Authored commits in public + private repositories, all current branches, including merges, deduplicated by SHA across repositories. Scanned 13 repositories and 22 branches.</desc>
+        <desc id="descId">Total Stars Earned: 3, Total Commits: 2, Total PRs: 15, Total Issues: 3, Contributed to (last year): 3. Authored commits in public + private repositories, all current branches, including merges, deduplicated by SHA across repositories. Scanned 13 repositories and 22 branches.</desc>
         <style>
           .header {
             font: 600 18px 'Segoe UI', Ubuntu, Sans-Serif;
@@ -64,7 +64,7 @@
         stroke-dashoffset: 251.32741228718345;
       }
       to {
-        stroke-dashoffset: 231.16027456305457;
+        stroke-dashoffset: 230.23097641956934;
       }
     }
 
@@ -134,13 +134,13 @@
     <g class="stagger" style="animation-delay: 600ms" transform="translate(25, 0)">
 
       <text class="stat  bold" y="12.5">Total Commits:</text>
-      <text class="stat  bold" x="204.01" y="12.5" data-testid="commits">129</text>
+      <text class="stat  bold" x="204.01" y="12.5" data-testid="commits">2</text>
     </g>
   </g><g transform="translate(0, 50)">
     <g class="stagger" style="animation-delay: 750ms" transform="translate(25, 0)">
 
       <text class="stat  bold" y="12.5">Total PRs:</text>
-      <text class="stat  bold" x="204.01" y="12.5" data-testid="prs">14</text>
+      <text class="stat  bold" x="204.01" y="12.5" data-testid="prs">15</text>
     </g>
   </g><g transform="translate(0, 75)">
     <g class="stagger" style="animation-delay: 900ms" transform="translate(25, 0)">
