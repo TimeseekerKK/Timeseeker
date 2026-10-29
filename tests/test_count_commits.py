@@ -25,7 +25,8 @@ def repo(number, private=False, fork=False):
 
 
 def commit(sha, author="TobeBestKK", parents=1):
-    return {"sha": sha, "author": {"login": author},
+    user_id = 149032340 if author and author.casefold() == "tobebestkk" else 42
+    return {"sha": sha, "author": {"login": author, "id": user_id},
             "parents": [{} for _ in range(parents)]}
 
 
@@ -45,7 +46,7 @@ CARD = '''<svg xmlns="http://www.w3.org/2000/svg" width="450" height="195" viewB
 class CountingTests(unittest.TestCase):
     def client(self, repos):
         client = Mock(token="test-token")
-        client.get.return_value = {"login": "TobeBestKK", "public_repos": 1,
+        client.get.return_value = {"login": "TobeBestKK", "id": 149032340, "public_repos": 1,
                                    "owned_private_repos": 1}
         client.pages.return_value = iter(repos)
         return client
@@ -65,7 +66,7 @@ class CountingTests(unittest.TestCase):
 
     def test_missing_private_profile_count_cannot_claim_complete_scan(self):
         client = self.client([repo(1)])
-        client.get.return_value = {"login": "TobeBestKK", "public_repos": 1}
+        client.get.return_value = {"login": "TobeBestKK", "id": 149032340, "public_repos": 1}
         with self.assertRaises(stats.StatsError):
             stats.owned_repositories(client, "TobeBestKK")
 
@@ -86,6 +87,7 @@ class CountingTests(unittest.TestCase):
 
     def test_all_heads_are_snapshotted_and_shas_are_globally_deduplicated(self):
         client = Mock()
+        client.get.return_value = {"login": "TobeBestKK", "id": 149032340}
         routes = {
             "/repos/TobeBestKK/repo1/branches": [{"commit": {"sha": "head1"}},
                                                   {"commit": {"sha": "head2"}}],
@@ -112,9 +114,56 @@ class CountingTests(unittest.TestCase):
 
     def test_empty_repository_contributes_zero(self):
         client = Mock()
+        client.get.return_value = {"login": "TobeBestKK", "id": 149032340}
         client.pages.return_value = iter([])
         with patch.object(stats, "owned_repositories", return_value=[repo(1)]):
             self.assertEqual(stats.count_commits(client, "TobeBestKK").total, 0)
+
+    def test_rename_recovers_email_results_and_deduplicates_every_source(self):
+        email = "149032340+TobeBestKK@users.noreply.github.com"
+        old = commit("old")
+        renamed = commit("new")
+        renamed["author"]["login"] = "TimeseekerKK"
+        client = Mock()
+        client.get.return_value = {"login": "TimeseekerKK", "id": 149032340}
+        def pages(path, params=None):
+            if path.endswith("/branches"):
+                return iter([{"commit": {"sha": "head1"}}, {"commit": {"sha": "head2"}}])
+            self.assertIn(params["sha"], ("head1", "head2"))
+            # The new login misses the old commit even though its author ID is correct.
+            return iter([renamed] if params["author"] == "TimeseekerKK" else [old, renamed])
+        client.pages.side_effect = pages
+        with patch.object(stats, "owned_repositories", return_value=[repo(1), repo(2)]):
+            result = stats.count_commits(client, "TimeseekerKK", author_emails=[email, email.upper()])
+        self.assertEqual(result, stats.CommitStats(2, 2, 4, False))
+        self.assertEqual(len(client.pages.call_args_list), 10)
+        self.assertTrue(all(call.args[0].endswith("/branches")
+                            for call in client.pages.call_args_list[:2]))
+
+    def test_only_confirmed_unlinked_email_is_accepted_and_conflicting_id_is_rejected(self):
+        email = "149032340+TobeBestKK@users.noreply.github.com"
+        def raw(sha, author, address):
+            return {"sha": sha, "author": author, "commit": {"author": {"email": address}}}
+        client = Mock()
+        client.pages.side_effect = lambda *args: iter([
+            raw("confirmed", None, email.upper()),
+            raw("unknown", None, "someone@example.com"),
+            raw("conflict", {"id": 42, "login": "TimeseekerKK"}, email),
+            raw("missing-id", {"login": "TimeseekerKK"}, email),
+            raw("same-name", None, "TobeBestKK@users.noreply.github.com"),
+            raw("missing-email", None, ""),
+            raw("null-email", None, None),
+        ])
+        result = stats.repository_commits(client, "owner/repo", "TimeseekerKK", ["head"],
+                                          user_id=149032340, author_emails=[email])
+        self.assertEqual(result, {"confirmed"})
+
+    def test_missing_account_id_fails_before_enumerating_repositories(self):
+        client = self.client([])
+        del client.get.return_value["id"]
+        with self.assertRaisesRegex(stats.StatsError, "account ID"):
+            stats.count_commits(client, "TobeBestKK")
+        client.pages.assert_not_called()
 
 
 class ClientTests(unittest.TestCase):
@@ -170,6 +219,55 @@ class ClientTests(unittest.TestCase):
 
 
 class OutputTests(unittest.TestCase):
+    def test_first_complete_scan_can_replace_pending_card(self):
+        with tempfile.TemporaryDirectory(dir=SCRIPT.parents[2]) as directory:
+            output = Path(directory) / "card.svg"
+            stats.write_card(output, CARD)
+            stats.write_card(output, CARD, stats.CommitStats(129, 13, 22, False))
+            self.assertEqual(ET.fromstring(output.read_text(encoding="utf-8"))
+                             .find(".//*[@data-testid='commits']").text, "129")
+
+    def test_large_drop_retains_card_and_explicit_override_allows_it(self):
+        with tempfile.TemporaryDirectory(dir=SCRIPT.parents[2]) as directory:
+            output = Path(directory) / "card.svg"
+            stats.write_card(output, CARD, stats.CommitStats(129, 13, 22, False))
+            original = output.read_bytes()
+            with patch.object(stats, "count_commits", return_value=stats.CommitStats(2, 13, 22, False)), \
+                 patch.object(stats, "fetch_stats_card", return_value=CARD), \
+                 patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                self.assertEqual(stats.main(["--output", str(output)]), 1)
+                self.assertIn("129 to 2", stderr.getvalue())
+            self.assertEqual(output.read_bytes(), original)
+            stats.write_card(output, CARD, stats.CommitStats(2, 13, 22, False), allow_decrease=True)
+            root = ET.fromstring(output.read_text(encoding="utf-8"))
+            self.assertEqual(root.find(".//*[@data-testid='commits']").text, "2")
+
+    def test_decrease_threshold_allows_small_changes_but_checks_both_limits(self):
+        for previous, current, blocked in [(100, 80, False), (100, 79, True),
+                                           (20, 11, False), (20, 10, True), (0, 0, False),
+                                           (129, 130, False), (1000, 2, True)]:
+            with self.subTest(previous=previous, current=current), \
+                 tempfile.TemporaryDirectory(dir=SCRIPT.parents[2]) as directory:
+                output = Path(directory) / "card.svg"
+                stats.write_card(output, CARD, stats.CommitStats(previous, 13, 22, False))
+                result = stats.CommitStats(current, 13, 22, False)
+                if blocked:
+                    with self.assertRaisesRegex(stats.StatsError, "count dropped"):
+                        stats.write_card(output, CARD, result)
+                else:
+                    stats.write_card(output, CARD, result)
+
+    def test_cli_passes_confirmed_emails_and_decrease_override(self):
+        with tempfile.TemporaryDirectory(dir=SCRIPT.parents[2]) as directory:
+            output = Path(directory) / "card.svg"
+            stats.write_card(output, CARD, stats.CommitStats(129, 13, 22, False))
+            with patch.object(stats, "count_commits", return_value=stats.CommitStats(2, 13, 22, False)) as count, \
+                 patch.object(stats, "fetch_stats_card", return_value=CARD), \
+                 patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(stats.main(["--output", str(output), "--author-email", "old@example.com",
+                                             "--author-email", "other@example.com", "--allow-decrease"]), 0)
+            self.assertEqual(count.call_args.args[3], ["old@example.com", "other@example.com"])
+
     def test_failed_scan_retains_previous_card(self):
         with tempfile.TemporaryDirectory(dir=SCRIPT.parents[2]) as directory:
             output = Path(directory) / "card.svg"

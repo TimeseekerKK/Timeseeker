@@ -94,18 +94,24 @@ class CommitStats:
     public_only: bool
 
 
-def owned_repositories(client, username, public_only=False):
+def user_profile(client, username, public_only=False):
+    if not public_only and not client.token:
+        raise StatsError("Set COMMIT_STATS_TOKEN with read access to all owned repositories.")
+    profile = client.get("/users/" + quote(username, safe="") if public_only else "/user")
+    if profile.get("login", "").casefold() != username.casefold():
+        raise StatsError("COMMIT_STATS_TOKEN must belong to the configured username.")
+    if type(profile.get("id")) is not int or profile["id"] <= 0:
+        raise StatsError("GitHub account ID is missing; previous card retained.")
+    return profile
+
+
+def owned_repositories(client, username, public_only=False, profile=None):
+    profile = profile if profile is not None else user_profile(client, username, public_only)
     username_key = username.casefold()
     if public_only:
-        profile = client.get("/users/" + quote(username, safe=""))
         path = "/users/" + quote(username, safe="") + "/repos"
         params = {"type": "owner", "sort": "full_name", "direction": "asc"}
     else:
-        if not client.token:
-            raise StatsError("Set COMMIT_STATS_TOKEN with read access to all owned repositories.")
-        profile = client.get("/user")
-        if profile.get("login", "").casefold() != username_key:
-            raise StatsError("COMMIT_STATS_TOKEN must belong to the configured username.")
         path = "/user/repos"
         params = {"affiliation": "owner", "visibility": "all", "sort": "full_name"}
 
@@ -129,7 +135,7 @@ def owned_repositories(client, username, public_only=False):
     return list(repos.values())
 
 
-def repository_commits(client, full_name, username, heads=None):
+def repository_commits(client, full_name, username, heads=None, *, user_id, author_emails=()):
     """Return unique authored SHAs reachable from the supplied branch snapshot."""
     path = "/repos/" + quote(full_name, safe="/")
     if heads is None:
@@ -137,16 +143,24 @@ def repository_commits(client, full_name, username, heads=None):
     else:
         heads = set(heads)
     shas = set()
+    emails = {email.strip().casefold() for email in author_emails if email.strip()}
     for head in sorted(heads):
-        for commit in client.pages(path + "/commits", {"sha": head, "author": username}):
-            author = commit.get("author") or {}
-            if author.get("login", "").casefold() == username.casefold():
-                shas.add(commit["sha"])
+        # GitHub can still link old commits to the account while author=NEW_LOGIN
+        # returns none. Query confirmed historical emails as well as the login.
+        for author_filter in [username, *sorted(emails)]:
+            for commit in client.pages(path + "/commits", {"sha": head, "author": author_filter}):
+                author = commit.get("author")
+                email = ((commit.get("commit") or {}).get("author") or {}).get("email") or ""
+                if (author and author.get("id") == user_id) or (
+                    author is None and email.casefold() in emails
+                ):
+                    shas.add(commit["sha"])
     return shas
 
 
-def count_commits(client, username, public_only=False):
-    repos = owned_repositories(client, username, public_only)
+def count_commits(client, username, public_only=False, author_emails=()):
+    profile = user_profile(client, username, public_only)
+    repos = owned_repositories(client, username, public_only, profile=profile)
     # Snapshot all branch heads before reading their immutable commit histories.
     snapshots = []
     branches = 0
@@ -159,7 +173,8 @@ def count_commits(client, username, public_only=False):
 
     shas = set()
     for full_name, heads in snapshots:
-        shas.update(repository_commits(client, full_name, username, heads))
+        shas.update(repository_commits(client, full_name, username, heads,
+                                       user_id=profile["id"], author_emails=author_emails))
     return CommitStats(len(shas), len(repos), branches, public_only)
 
 
@@ -197,7 +212,8 @@ def render_card(source, stats=None):
     value = f"{stats.total:,}" if stats else "pending"
     scope = "public repositories" if stats and stats.public_only else "public + private repositories"
     details = (
-        f"Authored commits in {scope}, all current branches, including merges, "
+        f"Authored commits matched by account ID or confirmed historical author email in {scope}, "
+        "all current branches, including merges, "
         "deduplicated by SHA across repositories."
     )
     if stats:
@@ -216,9 +232,32 @@ def render_card(source, stats=None):
     return "\n".join(line.rstrip() for line in ET.tostring(root, encoding="unicode").splitlines()) + "\n"
 
 
-def write_card(output, source, stats=None):
+def check_decrease(output, stats, allow_decrease=False):
+    """Keep the last complete card when at least 10 commits and over 20% disappear."""
+    if allow_decrease or stats is None or not output.exists():
+        return
+    try:
+        root = ET.fromstring(output.read_text(encoding="utf-8"))
+        node = root.find(".//*[@data-testid='commits']")
+        if node is not None and node.text == "pending":
+            return
+        previous = int(node.text.replace(",", "")) if node is not None else None
+    except (ET.ParseError, ValueError, AttributeError):
+        raise StatsError("Previous card count cannot be checked; review it before using --allow-decrease.") from None
+    if previous is None:
+        raise StatsError("Previous card count is missing; previous card retained.")
+    if previous - stats.total >= 10 and stats.total * 5 < previous * 4:
+        raise StatsError(
+            f"Commit count dropped from {previous} to {stats.total} "
+            f"(scanned {stats.repositories} repositories, {stats.branches} branches); "
+            "previous card retained. Review repository/branch changes before using --allow-decrease."
+        )
+
+
+def write_card(output, source, stats=None, allow_decrease=False):
     content = render_card(source, stats)
     output = Path(output)
+    check_decrease(output, stats, allow_decrease)
     if output.exists() and output.read_text(encoding="utf-8") == content:
         return
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -240,12 +279,16 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, default=Path("assets/github-stats.svg"))
     parser.add_argument("--public-only", action="store_true",
                         help="Diagnostic mode: count only public repositories, labeled accordingly.")
+    parser.add_argument("--author-email", action="append", default=[],
+                        help="Confirmed historical author email owned by this user; repeat for multiple addresses.")
+    parser.add_argument("--allow-decrease", action="store_true",
+                        help="Accept a large count decrease only after reviewing repository/branch changes.")
     args = parser.parse_args(argv)
     try:
         stats = count_commits(GitHubClient(os.environ.get("COMMIT_STATS_TOKEN", "")),
-                              args.username, args.public_only)
+                              args.username, args.public_only, args.author_email)
         source = fetch_stats_card(args.username)
-        write_card(args.output, source, stats)
+        write_card(args.output, source, stats, args.allow_decrease)
     except (StatsError, OSError, KeyError, TypeError) as error:
         message = str(error) if isinstance(error, StatsError) else "Scan or card write failed."
         print(message, file=sys.stderr)

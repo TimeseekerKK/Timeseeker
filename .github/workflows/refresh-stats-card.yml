@@ -6,6 +6,11 @@ on:
     # GitHub Actions 使用 UTC，这里 16:17 UTC = 北京时间 00:17
     - cron: "17 16 * * *"
   workflow_dispatch:
+    inputs:
+      allow_decrease:
+        description: "核实仓库或分支变化后，允许提交数明显下降"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -36,7 +41,15 @@ jobs:
           # Classic PAT owned by TimeseekerKK: repo + read:user.
           # read:user exposes owned_private_repos for complete coverage checks.
           COMMIT_STATS_TOKEN: ${{ secrets.COMMIT_STATS_TOKEN }}
-        run: python -B .github/scripts/count_commits.py
+          ALLOW_DECREASE: ${{ inputs.allow_decrease == true && 'true' || 'false' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--author-email '149032340+TobeBestKK@users.noreply.github.com')
+          if [[ "$ALLOW_DECREASE" == "true" ]]; then
+            args+=(--allow-decrease)
+          fi
+          python -B .github/scripts/count_commits.py "${args[@]}"
 
       - name: Commit updated stats card
         shell: bash
